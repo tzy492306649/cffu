@@ -114,6 +114,46 @@ public class CfDelayDysfunctionDemo {
         allOf(subsequentCfs.toArray(new CompletableFuture<?>[0])).join();
         logWithTimeAndThread("warmup pools end");
     }
+
+    private static void cffuOrTimeoutFixDysfunctionDemo2() {
+        logWithTimeAndThread("cffuOrTimeoutFixDysfunctionDemo begin");
+
+        final int size = 3;
+        final CompletableFuture<?>[] subsequentCfs = new CompletableFuture<?>[size];
+        final long tick = currentTimeMillis();
+        for (int i = 0; i < size; i++) {
+            final int idx = i;
+            logWithTimeAndThread("[%d] start a 1-second-sleep task after 100ms timeout", idx);
+            //并行执行3个任务
+            CompletableFuture<?> cf =  cffuOrTimeout(new CompletableFuture<Void>(), 100, MILLISECONDS)
+                    .handle((v, ex) -> {
+                        final List<CompletableFuture<?>> futures = new ArrayList<>();
+                        for (int i1 = 0; i1 < size; i1++) {
+                            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                                try {
+                                    //比如这里是插入数据库的操作
+                                    sleep(1000);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(e.getMessage());
+                                }
+                            });
+                            futures.add(future);
+                        }
+                        //阻塞等待
+                        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+                        logWithTimeAndThread("[%d] triggered 1-second-sleep task after 100ms timeout", idx);
+                        sleep(1000);
+                        logWithTimeAndThread("[%d] 1-second-sleep end", idx);
+                        return null;
+                    });
+            subsequentCfs[idx] = cf;
+        }
+        allOf(subsequentCfs).join();
+        // end in ~1.1 seconds(expected✅), because 3 subsequent tasks is executed
+        // in the commonPool(customizable by the executor param of cffuOrTimeout)
+        logWithTimeAndThread("cffuOrTimeoutFixDysfunctionDemo end in %dms", currentTimeMillis() - tick);
+    }
 }
 
 /*
